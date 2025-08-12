@@ -1,7 +1,7 @@
-# Ultra-Fast Railway-Optimized Dockerfile for Aditi Consulting AI
-FROM node:20-alpine
+# Size-Optimized Multi-Stage Dockerfile for Railway (Under 4GB)
+FROM node:20-alpine AS base
 
-# Install system dependencies with optimizations for faster builds
+# Install build dependencies
 RUN apk add --no-cache \
     python3 \
     py3-pip \
@@ -19,78 +19,101 @@ RUN apk add --no-cache \
     pkgconfig \
     bash \
     curl \
-    git \
-    sqlite \
-    ttf-dejavu \
-    fontconfig \
-    && rm -rf /var/cache/apk/*
+    git
 
-# Set build optimizations to avoid timeouts
+# Set build optimizations
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 ENV SHARP_IGNORE_GLOBAL_LIBVIPS=1
 ENV npm_config_build_from_source=false
 ENV npm_config_cache_max=0
 
-# Install Chromium for Puppeteer
-RUN apk add --no-cache chromium
+WORKDIR /app
 
-# Create app user for security
+# Frontend build stage
+FROM base AS frontend-builder
+COPY frontend/package.json ./frontend/
+RUN cd frontend && yarn install --network-timeout 600000 --production=false
+COPY frontend/ ./frontend/
+WORKDIR /app/frontend
+RUN yarn add regenerator-runtime core-js --dev
+RUN sed -i 's/FolderNotch/Folder/g' src/components/Modals/ManageWorkspace/Documents/Directory/FolderRow/index.jsx
+RUN NODE_ENV=production NODE_OPTIONS="--max-old-space-size=4096" yarn build
+
+# Server build stage
+FROM base AS server-builder
+COPY server/package.json ./server/
+RUN cd server && yarn install --production --network-timeout 600000
+COPY server/ ./server/
+WORKDIR /app/server
+RUN npx prisma generate --schema=./prisma/schema.prisma
+# Clean up dev dependencies and cache
+RUN yarn cache clean && rm -rf node_modules/.cache
+
+# Collector build stage
+FROM base AS collector-builder
+COPY collector/package.json ./collector/
+RUN cd collector && yarn install --production --network-timeout 600000
+COPY collector/ ./collector/
+WORKDIR /app/collector
+RUN yarn cache clean && rm -rf node_modules/.cache
+
+# Final production stage - minimal runtime image
+FROM node:20-alpine AS production
+
+# Install only runtime dependencies
+RUN apk add --no-cache \
+    python3 \
+    cairo \
+    jpeg \
+    pango \
+    musl \
+    giflib \
+    pixman \
+    pangomm \
+    libjpeg-turbo \
+    freetype \
+    ttf-dejavu \
+    fontconfig \
+    bash \
+    curl \
+    sqlite \
+    chromium \
+    && rm -rf /var/cache/apk/*
+
+# Create app user
 RUN addgroup -g 1001 -S nodejs && \
     adduser -S anythingllm -u 1001 -G nodejs
 
-# Set working directory
 WORKDIR /app
 
-# Copy package files only (yarn.lock files are in .gitignore)
-COPY package.json ./
-COPY frontend/package.json ./frontend/
-COPY server/package.json ./server/
-COPY collector/package.json ./collector/
+# Copy only production files (no dev dependencies)
+COPY --from=server-builder --chown=anythingllm:nodejs /app/server ./server
+COPY --from=collector-builder --chown=anythingllm:nodejs /app/collector ./collector
+COPY --from=frontend-builder --chown=anythingllm:nodejs /app/frontend/dist ./server/public
 
-# Install dependencies with optimizations to prevent build timeouts
-RUN cd frontend && yarn install --network-timeout 600000 --prefer-offline && cd ..
-RUN cd server && yarn install --production --network-timeout 600000 --prefer-offline && cd ..
-RUN cd collector && yarn install --production --network-timeout 600000 --prefer-offline && cd ..
+# Copy package.json for reference
+COPY --chown=anythingllm:nodejs package.json ./
 
-# Copy source code
-COPY frontend/ ./frontend/
-COPY server/ ./server/
-COPY collector/ ./collector/
-
-# Install missing dependencies for frontend build
-WORKDIR /app/frontend
-RUN yarn add regenerator-runtime core-js --dev
-
-# Fix the FolderNotch icon import issue (replace with available Folder icon)
-RUN sed -i 's/FolderNotch/Folder/g' src/components/Modals/ManageWorkspace/Documents/Directory/FolderRow/index.jsx && \
-    sed -i 's/{ CaretDown, Folder }/{ CaretDown, Folder }/g' src/components/Modals/ManageWorkspace/Documents/Directory/FolderRow/index.jsx
-
-# Build frontend with proper environment and error handling
-RUN NODE_ENV=production NODE_OPTIONS="--max-old-space-size=4096" yarn build || \
-    (echo "First build attempt failed, trying with legacy peer deps..." && \
-     yarn install --legacy-peer-deps && \
-     NODE_ENV=production NODE_OPTIONS="--max-old-space-size=4096" yarn build)
-
-# Generate Prisma client
-WORKDIR /app/server
-RUN npx prisma generate --schema=./prisma/schema.prisma
-
-# Move built frontend to server public directory
-WORKDIR /app
-RUN mkdir -p server/public && cp -r frontend/dist/* server/public/ || echo "Frontend build files copied"
-
-# Create necessary directories with proper permissions
+# Create directories
 RUN mkdir -p /app/server/storage/documents \
-    && mkdir -p /app/server/storage/vector-cache \
-    && mkdir -p /app/server/storage/lancedb \
-    && mkdir -p /app/collector/hotdir \
-    && mkdir -p /app/collector/storage/tmp \
-    && mkdir -p /app/server/logs \
+    /app/server/storage/vector-cache \
+    /app/server/storage/lancedb \
+    /app/collector/hotdir \
+    /app/collector/storage/tmp \
+    /app/server/logs \
     && chown -R anythingllm:nodejs /app \
     && chmod -R 755 /app
 
-# Set environment variables for Railway
+# Remove unnecessary files to reduce image size
+RUN find /app -name "*.md" -delete && \
+    find /app -name "*.txt" -delete && \
+    find /app -name "*.log" -delete && \
+    find /app -name ".git*" -delete && \
+    find /app -name "test*" -type d -exec rm -rf {} + 2>/dev/null || true && \
+    find /app -name "*.test.js" -delete && \
+    find /app -name "*.spec.js" -delete
+
+# Environment variables
 ENV NODE_ENV=production
 ENV SERVER_PORT=${PORT:-3001}
 ENV COLLECTOR_PORT=8888
@@ -104,20 +127,17 @@ ENV LLM_PROVIDER=${LLM_PROVIDER:-"openai"}
 ENV EMBEDDING_ENGINE=${EMBEDDING_ENGINE:-"native"}
 ENV TTS_PROVIDER=${TTS_PROVIDER:-"native"}
 ENV WHISPER_PROVIDER=${WHISPER_PROVIDER:-"local"}
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
-# Expose the port (Railway will set PORT env var)
 EXPOSE ${PORT:-3001}
 
-# Copy and set up entrypoint script
-COPY docker-entrypoint.sh ./
-RUN chmod +x docker-entrypoint.sh && chown anythingllm:nodejs docker-entrypoint.sh
+# Copy entrypoint
+COPY --chown=anythingllm:nodejs docker-entrypoint.sh ./
+RUN chmod +x docker-entrypoint.sh
 
-# Switch to non-root user
 USER anythingllm
 
-# Health check for Railway
 HEALTHCHECK --interval=30s --timeout=10s --start-period=90s --retries=3 \
     CMD node -e "require('http').get('http://localhost:${PORT:-3001}/api/ping', (res) => { process.exit(res.statusCode === 200 ? 0 : 1) }).on('error', () => process.exit(1))"
 
-# Start the application
 ENTRYPOINT ["./docker-entrypoint.sh"]
