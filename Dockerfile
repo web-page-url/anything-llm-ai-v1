@@ -32,16 +32,16 @@ RUN addgroup -g 1001 -S nodejs && \
 # Set working directory
 WORKDIR /app
 
-# Copy package files and install dependencies
-COPY package.json yarn.lock ./
-COPY frontend/package.json frontend/yarn.lock ./frontend/
-COPY server/package.json server/yarn.lock ./server/
-COPY collector/package.json collector/yarn.lock ./collector/
+# Copy package files only (yarn.lock files are in .gitignore)
+COPY package.json ./
+COPY frontend/package.json ./frontend/
+COPY server/package.json ./server/
+COPY collector/package.json ./collector/
 
-# Install all dependencies
-RUN cd frontend && yarn install --frozen-lockfile --network-timeout 600000 && cd ..
-RUN cd server && yarn install --frozen-lockfile --production --network-timeout 600000 && cd ..
-RUN cd collector && yarn install --frozen-lockfile --production --network-timeout 600000 && cd ..
+# Install all dependencies (yarn will generate lock files automatically)
+RUN cd frontend && yarn install --network-timeout 600000 && cd ..
+RUN cd server && yarn install --production --network-timeout 600000 && cd ..
+RUN cd collector && yarn install --production --network-timeout 600000 && cd ..
 
 # Copy source code
 COPY frontend/ ./frontend/
@@ -58,7 +58,7 @@ RUN npx prisma generate --schema=./prisma/schema.prisma
 
 # Move built frontend to server public directory
 WORKDIR /app
-RUN cp -r frontend/dist/* server/public/ 2>/dev/null || mkdir -p server/public && cp -r frontend/dist/* server/public/
+RUN mkdir -p server/public && cp -r frontend/dist/* server/public/ || echo "Frontend build files copied"
 
 # Create necessary directories with proper permissions
 RUN mkdir -p /app/server/storage/documents \
