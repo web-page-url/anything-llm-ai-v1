@@ -1,0 +1,7 @@
+docker/
+cloud-deployments/
+Dockerfile
+*.dockerfile
+docker-compose.yml
+docker-compose.yaml
+.dockerignore
