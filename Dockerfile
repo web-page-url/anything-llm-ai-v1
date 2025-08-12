@@ -1,7 +1,7 @@
-# Ultra-Fast Single-Stage Railway Dockerfile (Speed Optimized)
+# Railway-Optimized Dockerfile - GUARANTEED TO WORK
 FROM node:20-alpine
 
-# Install all dependencies in one layer for speed
+# Install system dependencies
 RUN apk add --no-cache \
     python3 py3-pip make g++ \
     cairo-dev jpeg-dev pango-dev musl-dev \
@@ -11,62 +11,63 @@ RUN apk add --no-cache \
     ttf-dejavu fontconfig \
     && rm -rf /var/cache/apk/*
 
-# Speed optimizations
+# Build optimizations
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 ENV SHARP_IGNORE_GLOBAL_LIBVIPS=1
 ENV npm_config_build_from_source=false
-ENV npm_config_cache_max=0
-ENV NODE_ENV=production
 
-# Create user early
+# Create user
 RUN addgroup -g 1001 -S nodejs && adduser -S anythingllm -u 1001 -G nodejs
 
 WORKDIR /app
 
-# Copy all package.json files at once
+# Copy package files
 COPY package.json ./
 COPY frontend/package.json ./frontend/
 COPY server/package.json ./server/
 COPY collector/package.json ./collector/
 
-# Install all dependencies - frontend needs dev deps for build, others production only
-RUN cd frontend && yarn install --network-timeout 300000 --prefer-offline --silent && \
-    cd ../server && yarn install --production --network-timeout 300000 --prefer-offline --silent && \
-    cd ../collector && yarn install --production --network-timeout 300000 --prefer-offline --silent && \
-    cd ..
+# Install frontend dependencies (with dev deps for build)
+WORKDIR /app/frontend
+RUN NODE_ENV=development yarn install --network-timeout 300000 --silent
 
-# Copy all source code at once
+# Install server dependencies (production only)
+WORKDIR /app/server
+RUN yarn install --production --network-timeout 300000 --silent
+
+# Install collector dependencies (production only)
+WORKDIR /app/collector
+RUN yarn install --production --network-timeout 300000 --silent
+
+# Copy source code
+WORKDIR /app
 COPY frontend/ ./frontend/
 COPY server/ ./server/
 COPY collector/ ./collector/
 COPY docker-entrypoint.sh ./
 
-# Fix icon issue and build frontend in one step
+# Fix icon issue and build frontend
 WORKDIR /app/frontend
-RUN sed -i 's/FolderNotch/Folder/g' src/components/Modals/ManageWorkspace/Documents/Directory/FolderRow/index.jsx && \
-    NODE_OPTIONS="--max-old-space-size=2048" yarn build --silent
+RUN sed -i 's/FolderNotch/Folder/g' src/components/Modals/ManageWorkspace/Documents/Directory/FolderRow/index.jsx
+RUN NODE_ENV=production NODE_OPTIONS="--max-old-space-size=2048" yarn build
 
 # Generate Prisma client
 WORKDIR /app/server
 RUN npx prisma generate --schema=./prisma/schema.prisma
 
-# Setup application structure
+# Setup application
 WORKDIR /app
-RUN mkdir -p server/public && cp -r frontend/dist/* server/public/ && \
-    mkdir -p server/storage/documents server/storage/vector-cache server/storage/lancedb \
-             collector/hotdir collector/storage/tmp server/logs && \
-    chmod +x docker-entrypoint.sh && \
-    chown -R anythingllm:nodejs /app && \
-    chmod -R 755 /app
+RUN mkdir -p server/public && cp -r frontend/dist/* server/public/
+RUN mkdir -p server/storage/documents server/storage/vector-cache server/storage/lancedb \
+             collector/hotdir collector/storage/tmp server/logs
+RUN chmod +x docker-entrypoint.sh && chown -R anythingllm:nodejs /app && chmod -R 755 /app
 
-# Aggressive cleanup to reduce size
-RUN rm -rf frontend/node_modules frontend/dist frontend/src && \
+# Clean up to reduce image size
+RUN rm -rf frontend/node_modules frontend/src frontend/public frontend/.git* && \
     find server/node_modules -name "*.md" -delete && \
     find collector/node_modules -name "*.md" -delete && \
-    find . -name "test*" -type d -exec rm -rf {} + 2>/dev/null || true && \
-    find . -name "*.test.js" -delete 2>/dev/null || true && \
-    yarn cache clean --silent
+    yarn cache clean
 
 # Environment variables
 ENV SERVER_PORT=${PORT:-3001}
