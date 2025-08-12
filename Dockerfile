@@ -1,7 +1,7 @@
-# Multi-stage Dockerfile for Aditi Consulting AI - Railway Optimized
+# Railway-Optimized Dockerfile for Aditi Consulting AI
 FROM node:20-alpine AS base
 
-# Install system dependencies including Python for native modules
+# Install system dependencies
 RUN apk add --no-cache \
     python3 \
     py3-pip \
@@ -19,46 +19,35 @@ RUN apk add --no-cache \
     pkgconfig \
     bash \
     curl \
-    git
+    git \
+    && rm -rf /var/cache/apk/*
 
 # Set working directory
 WORKDIR /app
 
-# Copy package files for dependency installation
-COPY package*.json yarn.lock ./
-
-# Install root dependencies
-RUN yarn install --frozen-lockfile --network-timeout 300000
-
 # Frontend build stage
 FROM base AS frontend-builder
-WORKDIR /app
 
-# Copy frontend source and package files
-COPY frontend/package*.json ./frontend/
-COPY frontend/yarn.lock ./frontend/ 2>/dev/null || true
+# Copy frontend package files first for better caching
+COPY frontend/package.json frontend/yarn.lock ./frontend/
 
 # Install frontend dependencies
 WORKDIR /app/frontend
-RUN yarn install --frozen-lockfile --network-timeout 300000
+RUN yarn install --frozen-lockfile --network-timeout 600000
 
-# Copy frontend source code
+# Copy frontend source and build
 COPY frontend/ ./
-
-# Build frontend
-RUN yarn build
+RUN NODE_OPTIONS="--max-old-space-size=4096" yarn build
 
 # Server dependencies stage  
 FROM base AS server-builder
-WORKDIR /app
 
-# Copy server package files
-COPY server/package*.json ./server/
-COPY server/yarn.lock ./server/ 2>/dev/null || true
+# Copy server package files first for better caching
+COPY server/package.json server/yarn.lock ./server/
 
 # Install server dependencies
 WORKDIR /app/server
-RUN yarn install --frozen-lockfile --production --network-timeout 300000
+RUN yarn install --frozen-lockfile --production --network-timeout 600000
 
 # Copy server source
 COPY server/ ./
@@ -68,15 +57,13 @@ RUN npx prisma generate --schema=./prisma/schema.prisma
 
 # Collector dependencies stage
 FROM base AS collector-builder
-WORKDIR /app
 
-# Copy collector package files
-COPY collector/package*.json ./collector/
-COPY collector/yarn.lock ./collector/ 2>/dev/null || true
+# Copy collector package files first for better caching
+COPY collector/package.json collector/yarn.lock ./collector/
 
 # Install collector dependencies
 WORKDIR /app/collector
-RUN yarn install --frozen-lockfile --production --network-timeout 300000
+RUN yarn install --frozen-lockfile --production --network-timeout 600000
 
 # Copy collector source
 COPY collector/ ./
