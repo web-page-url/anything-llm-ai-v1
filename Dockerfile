@@ -62,6 +62,10 @@ COPY collector/ ./collector/
 WORKDIR /app/frontend
 RUN yarn add regenerator-runtime core-js --dev
 
+# Fix the FolderNotch icon import issue (replace with available Folder icon)
+RUN sed -i 's/FolderNotch/Folder/g' src/components/Modals/ManageWorkspace/Documents/Directory/FolderRow/index.jsx && \
+    sed -i 's/{ CaretDown, Folder }/{ CaretDown, Folder }/g' src/components/Modals/ManageWorkspace/Documents/Directory/FolderRow/index.jsx
+
 # Build frontend with proper environment and error handling
 RUN NODE_ENV=production NODE_OPTIONS="--max-old-space-size=4096" yarn build || \
     (echo "First build attempt failed, trying with legacy peer deps..." && \
