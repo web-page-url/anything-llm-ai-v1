@@ -1,5 +1,5 @@
-# Railway-Optimized Dockerfile for Aditi Consulting AI
-FROM node:20-alpine AS base
+# Simplified Railway-Optimized Dockerfile for Aditi Consulting AI
+FROM node:20-alpine
 
 # Install system dependencies
 RUN apk add --no-cache \
@@ -20,75 +20,9 @@ RUN apk add --no-cache \
     bash \
     curl \
     git \
-    && rm -rf /var/cache/apk/*
-
-# Set working directory
-WORKDIR /app
-
-# Frontend build stage
-FROM base AS frontend-builder
-
-# Copy frontend package files first for better caching
-COPY frontend/package.json frontend/yarn.lock ./frontend/
-
-# Install frontend dependencies
-WORKDIR /app/frontend
-RUN yarn install --frozen-lockfile --network-timeout 600000
-
-# Copy frontend source and build
-COPY frontend/ ./
-RUN NODE_OPTIONS="--max-old-space-size=4096" yarn build
-
-# Server dependencies stage  
-FROM base AS server-builder
-
-# Copy server package files first for better caching
-COPY server/package.json server/yarn.lock ./server/
-
-# Install server dependencies
-WORKDIR /app/server
-RUN yarn install --frozen-lockfile --production --network-timeout 600000
-
-# Copy server source
-COPY server/ ./
-
-# Generate Prisma client
-RUN npx prisma generate --schema=./prisma/schema.prisma
-
-# Collector dependencies stage
-FROM base AS collector-builder
-
-# Copy collector package files first for better caching
-COPY collector/package.json collector/yarn.lock ./collector/
-
-# Install collector dependencies
-WORKDIR /app/collector
-RUN yarn install --frozen-lockfile --production --network-timeout 600000
-
-# Copy collector source
-COPY collector/ ./
-
-# Final production stage
-FROM node:20-alpine AS production
-
-# Install runtime dependencies
-RUN apk add --no-cache \
-    python3 \
-    py3-pip \
-    cairo \
-    jpeg \
-    pango \
-    musl \
-    giflib \
-    pixman \
-    pangomm \
-    libjpeg-turbo \
-    freetype \
+    sqlite \
     ttf-dejavu \
     fontconfig \
-    bash \
-    curl \
-    sqlite \
     && rm -rf /var/cache/apk/*
 
 # Create app user for security
@@ -98,13 +32,33 @@ RUN addgroup -g 1001 -S nodejs && \
 # Set working directory
 WORKDIR /app
 
-# Copy built applications with proper ownership
-COPY --from=server-builder --chown=anythingllm:nodejs /app/server ./server
-COPY --from=collector-builder --chown=anythingllm:nodejs /app/collector ./collector
-COPY --from=frontend-builder --chown=anythingllm:nodejs /app/frontend/dist ./server/public
+# Copy package files and install dependencies
+COPY package.json yarn.lock ./
+COPY frontend/package.json frontend/yarn.lock ./frontend/
+COPY server/package.json server/yarn.lock ./server/
+COPY collector/package.json collector/yarn.lock ./collector/
 
-# Copy root package.json
-COPY --chown=anythingllm:nodejs package.json ./
+# Install all dependencies
+RUN cd frontend && yarn install --frozen-lockfile --network-timeout 600000 && cd ..
+RUN cd server && yarn install --frozen-lockfile --production --network-timeout 600000 && cd ..
+RUN cd collector && yarn install --frozen-lockfile --production --network-timeout 600000 && cd ..
+
+# Copy source code
+COPY frontend/ ./frontend/
+COPY server/ ./server/
+COPY collector/ ./collector/
+
+# Build frontend
+WORKDIR /app/frontend
+RUN NODE_OPTIONS="--max-old-space-size=4096" yarn build
+
+# Generate Prisma client
+WORKDIR /app/server
+RUN npx prisma generate --schema=./prisma/schema.prisma
+
+# Move built frontend to server public directory
+WORKDIR /app
+RUN cp -r frontend/dist/* server/public/ 2>/dev/null || mkdir -p server/public && cp -r frontend/dist/* server/public/
 
 # Create necessary directories with proper permissions
 RUN mkdir -p /app/server/storage/documents \
@@ -135,8 +89,8 @@ ENV WHISPER_PROVIDER=${WHISPER_PROVIDER:-"local"}
 EXPOSE ${PORT:-3001}
 
 # Copy and set up entrypoint script
-COPY --chown=anythingllm:nodejs docker-entrypoint.sh ./
-RUN chmod +x docker-entrypoint.sh
+COPY docker-entrypoint.sh ./
+RUN chmod +x docker-entrypoint.sh && chown anythingllm:nodejs docker-entrypoint.sh
 
 # Switch to non-root user
 USER anythingllm
