@@ -49,7 +49,7 @@ COPY server/package.json ./server/
 COPY collector/package.json ./collector/
 
 # Install dependencies with optimizations to prevent build timeouts
-RUN cd frontend && yarn install --network-timeout 600000 --prefer-offline --production=false && cd ..
+RUN cd frontend && yarn install --network-timeout 600000 --prefer-offline && cd ..
 RUN cd server && yarn install --production --network-timeout 600000 --prefer-offline && cd ..
 RUN cd collector && yarn install --production --network-timeout 600000 --prefer-offline && cd ..
 
@@ -58,9 +58,15 @@ COPY frontend/ ./frontend/
 COPY server/ ./server/
 COPY collector/ ./collector/
 
-# Build frontend
+# Install missing dependencies for frontend build
 WORKDIR /app/frontend
-RUN NODE_OPTIONS="--max-old-space-size=4096" yarn build
+RUN yarn add regenerator-runtime core-js --dev
+
+# Build frontend with proper environment and error handling
+RUN NODE_ENV=production NODE_OPTIONS="--max-old-space-size=4096" yarn build || \
+    (echo "First build attempt failed, trying with legacy peer deps..." && \
+     yarn install --legacy-peer-deps && \
+     NODE_ENV=production NODE_OPTIONS="--max-old-space-size=4096" yarn build)
 
 # Generate Prisma client
 WORKDIR /app/server
