@@ -1,120 +1,75 @@
-# Size-Optimized Multi-Stage Dockerfile for Railway (Under 4GB)
-FROM node:20-alpine AS base
+# Ultra-Fast Single-Stage Railway Dockerfile (Speed Optimized)
+FROM node:20-alpine
 
-# Install build dependencies
+# Install all dependencies in one layer for speed
 RUN apk add --no-cache \
-    python3 \
-    py3-pip \
-    make \
-    g++ \
-    cairo-dev \
-    jpeg-dev \
-    pango-dev \
-    musl-dev \
-    giflib-dev \
-    pixman-dev \
-    pangomm-dev \
-    libjpeg-turbo-dev \
-    freetype-dev \
-    pkgconfig \
-    bash \
-    curl \
-    git
+    python3 py3-pip make g++ \
+    cairo-dev jpeg-dev pango-dev musl-dev \
+    giflib-dev pixman-dev pangomm-dev \
+    libjpeg-turbo-dev freetype-dev pkgconfig \
+    bash curl git sqlite chromium \
+    ttf-dejavu fontconfig \
+    && rm -rf /var/cache/apk/*
 
-# Set build optimizations
+# Speed optimizations
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 ENV SHARP_IGNORE_GLOBAL_LIBVIPS=1
 ENV npm_config_build_from_source=false
 ENV npm_config_cache_max=0
+ENV NODE_ENV=production
+
+# Create user early
+RUN addgroup -g 1001 -S nodejs && adduser -S anythingllm -u 1001 -G nodejs
 
 WORKDIR /app
 
-# Frontend build stage
-FROM base AS frontend-builder
+# Copy all package.json files at once
+COPY package.json ./
 COPY frontend/package.json ./frontend/
-RUN cd frontend && yarn install --network-timeout 600000 --production=false
-COPY frontend/ ./frontend/
-WORKDIR /app/frontend
-RUN yarn add regenerator-runtime core-js --dev
-RUN sed -i 's/FolderNotch/Folder/g' src/components/Modals/ManageWorkspace/Documents/Directory/FolderRow/index.jsx
-RUN NODE_ENV=production NODE_OPTIONS="--max-old-space-size=4096" yarn build
-
-# Server build stage
-FROM base AS server-builder
 COPY server/package.json ./server/
-RUN cd server && yarn install --production --network-timeout 600000
+COPY collector/package.json ./collector/
+
+# Install all dependencies in parallel using single yarn command
+RUN yarn install --network-timeout 300000 --prefer-offline --silent && \
+    cd frontend && yarn install --network-timeout 300000 --prefer-offline --silent && \
+    cd ../server && yarn install --production --network-timeout 300000 --prefer-offline --silent && \
+    cd ../collector && yarn install --production --network-timeout 300000 --prefer-offline --silent && \
+    cd ..
+
+# Copy all source code at once
+COPY frontend/ ./frontend/
 COPY server/ ./server/
+COPY collector/ ./collector/
+COPY docker-entrypoint.sh ./
+
+# Fix icon issue and build frontend in one step
+WORKDIR /app/frontend
+RUN sed -i 's/FolderNotch/Folder/g' src/components/Modals/ManageWorkspace/Documents/Directory/FolderRow/index.jsx && \
+    NODE_OPTIONS="--max-old-space-size=2048" yarn build --silent
+
+# Generate Prisma client
 WORKDIR /app/server
 RUN npx prisma generate --schema=./prisma/schema.prisma
-# Clean up dev dependencies and cache
-RUN yarn cache clean && rm -rf node_modules/.cache
 
-# Collector build stage
-FROM base AS collector-builder
-COPY collector/package.json ./collector/
-RUN cd collector && yarn install --production --network-timeout 600000
-COPY collector/ ./collector/
-WORKDIR /app/collector
-RUN yarn cache clean && rm -rf node_modules/.cache
-
-# Final production stage - minimal runtime image
-FROM node:20-alpine AS production
-
-# Install only runtime dependencies
-RUN apk add --no-cache \
-    python3 \
-    cairo \
-    jpeg \
-    pango \
-    musl \
-    giflib \
-    pixman \
-    pangomm \
-    libjpeg-turbo \
-    freetype \
-    ttf-dejavu \
-    fontconfig \
-    bash \
-    curl \
-    sqlite \
-    chromium \
-    && rm -rf /var/cache/apk/*
-
-# Create app user
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S anythingllm -u 1001 -G nodejs
-
+# Setup application structure
 WORKDIR /app
+RUN mkdir -p server/public && cp -r frontend/dist/* server/public/ && \
+    mkdir -p server/storage/documents server/storage/vector-cache server/storage/lancedb \
+             collector/hotdir collector/storage/tmp server/logs && \
+    chmod +x docker-entrypoint.sh && \
+    chown -R anythingllm:nodejs /app && \
+    chmod -R 755 /app
 
-# Copy only production files (no dev dependencies)
-COPY --from=server-builder --chown=anythingllm:nodejs /app/server ./server
-COPY --from=collector-builder --chown=anythingllm:nodejs /app/collector ./collector
-COPY --from=frontend-builder --chown=anythingllm:nodejs /app/frontend/dist ./server/public
-
-# Copy package.json for reference
-COPY --chown=anythingllm:nodejs package.json ./
-
-# Create directories
-RUN mkdir -p /app/server/storage/documents \
-    /app/server/storage/vector-cache \
-    /app/server/storage/lancedb \
-    /app/collector/hotdir \
-    /app/collector/storage/tmp \
-    /app/server/logs \
-    && chown -R anythingllm:nodejs /app \
-    && chmod -R 755 /app
-
-# Remove unnecessary files to reduce image size
-RUN find /app -name "*.md" -delete && \
-    find /app -name "*.txt" -delete && \
-    find /app -name "*.log" -delete && \
-    find /app -name ".git*" -delete && \
-    find /app -name "test*" -type d -exec rm -rf {} + 2>/dev/null || true && \
-    find /app -name "*.test.js" -delete && \
-    find /app -name "*.spec.js" -delete
+# Aggressive cleanup to reduce size
+RUN rm -rf frontend/node_modules frontend/dist frontend/src && \
+    find server/node_modules -name "*.md" -delete && \
+    find collector/node_modules -name "*.md" -delete && \
+    find . -name "test*" -type d -exec rm -rf {} + 2>/dev/null || true && \
+    find . -name "*.test.js" -delete 2>/dev/null || true && \
+    yarn cache clean --silent
 
 # Environment variables
-ENV NODE_ENV=production
 ENV SERVER_PORT=${PORT:-3001}
 ENV COLLECTOR_PORT=8888
 ENV STORAGE_DIR=/app/server/storage
@@ -127,13 +82,8 @@ ENV LLM_PROVIDER=${LLM_PROVIDER:-"openai"}
 ENV EMBEDDING_ENGINE=${EMBEDDING_ENGINE:-"native"}
 ENV TTS_PROVIDER=${TTS_PROVIDER:-"native"}
 ENV WHISPER_PROVIDER=${WHISPER_PROVIDER:-"local"}
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
 EXPOSE ${PORT:-3001}
-
-# Copy entrypoint
-COPY --chown=anythingllm:nodejs docker-entrypoint.sh ./
-RUN chmod +x docker-entrypoint.sh
 
 USER anythingllm
 
