@@ -1,0 +1,17 @@
+[build]
+builder = "dockerfile"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+healthcheckPath = "/api/ping"
+healthcheckTimeout = 300
+restartPolicyType = "on_failure"
+restartPolicyMaxRetries = 3
+
+[env]
+NODE_ENV = "production"
+VECTOR_DB = "lancedb"
+LLM_PROVIDER = "openai"
+EMBEDDING_ENGINE = "native"
+TTS_PROVIDER = "native"
+WHISPER_PROVIDER = "local"
