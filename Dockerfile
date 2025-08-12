@@ -30,9 +30,8 @@ COPY frontend/package.json ./frontend/
 COPY server/package.json ./server/
 COPY collector/package.json ./collector/
 
-# Install all dependencies in parallel using single yarn command
-RUN yarn install --network-timeout 300000 --prefer-offline --silent && \
-    cd frontend && yarn install --network-timeout 300000 --prefer-offline --silent && \
+# Install all dependencies - frontend needs dev deps for build, others production only
+RUN cd frontend && yarn install --network-timeout 300000 --prefer-offline --silent && \
     cd ../server && yarn install --production --network-timeout 300000 --prefer-offline --silent && \
     cd ../collector && yarn install --production --network-timeout 300000 --prefer-offline --silent && \
     cd ..
