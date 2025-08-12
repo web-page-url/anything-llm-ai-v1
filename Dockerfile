@@ -1,7 +1,7 @@
-# Simplified Railway-Optimized Dockerfile for Aditi Consulting AI
+# Ultra-Fast Railway-Optimized Dockerfile for Aditi Consulting AI
 FROM node:20-alpine
 
-# Install system dependencies
+# Install system dependencies with optimizations for faster builds
 RUN apk add --no-cache \
     python3 \
     py3-pip \
@@ -25,6 +25,16 @@ RUN apk add --no-cache \
     fontconfig \
     && rm -rf /var/cache/apk/*
 
+# Set build optimizations to avoid timeouts
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+ENV SHARP_IGNORE_GLOBAL_LIBVIPS=1
+ENV npm_config_build_from_source=false
+ENV npm_config_cache_max=0
+
+# Install Chromium for Puppeteer
+RUN apk add --no-cache chromium
+
 # Create app user for security
 RUN addgroup -g 1001 -S nodejs && \
     adduser -S anythingllm -u 1001 -G nodejs
@@ -38,10 +48,10 @@ COPY frontend/package.json ./frontend/
 COPY server/package.json ./server/
 COPY collector/package.json ./collector/
 
-# Install all dependencies (yarn will generate lock files automatically)
-RUN cd frontend && yarn install --network-timeout 600000 && cd ..
-RUN cd server && yarn install --production --network-timeout 600000 && cd ..
-RUN cd collector && yarn install --production --network-timeout 600000 && cd ..
+# Install dependencies with optimizations to prevent build timeouts
+RUN cd frontend && yarn install --network-timeout 600000 --prefer-offline --production=false && cd ..
+RUN cd server && yarn install --production --network-timeout 600000 --prefer-offline && cd ..
+RUN cd collector && yarn install --production --network-timeout 600000 --prefer-offline && cd ..
 
 # Copy source code
 COPY frontend/ ./frontend/
