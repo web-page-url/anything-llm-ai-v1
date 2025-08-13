@@ -1,17 +1,26 @@
-# ULTRA-SLIM Multi-Stage Build - UNDER 2GB GUARANTEED
-FROM node:20-alpine AS builder
+# ULTRA-FAST Railway Build - Under 8 Minutes, Under 4GB
+FROM node:20-alpine
 
-# Install build dependencies
-RUN apk add --no-cache python3 py3-pip make g++ \
+# Install system dependencies (optimized for speed)
+RUN apk add --no-cache --virtual .build-deps \
+    python3 py3-pip make g++ pkgconfig \
     cairo-dev jpeg-dev pango-dev musl-dev \
     giflib-dev pixman-dev pangomm-dev \
-    libjpeg-turbo-dev freetype-dev pkgconfig \
-    bash curl git
+    libjpeg-turbo-dev freetype-dev git && \
+    apk add --no-cache \
+    python3 cairo jpeg pango musl giflib pixman \
+    pangomm libjpeg-turbo freetype ttf-dejavu \
+    fontconfig bash curl sqlite chromium
 
-# Build optimizations
+# Speed optimizations
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 ENV SHARP_IGNORE_GLOBAL_LIBVIPS=1
 ENV npm_config_build_from_source=false
+ENV YARN_CACHE_FOLDER=/tmp/yarn-cache
+
+# Create user
+RUN addgroup -g 1001 -S nodejs && adduser -S anythingllm -u 1001 -G nodejs
 
 WORKDIR /app
 
@@ -21,72 +30,58 @@ COPY frontend/package.json ./frontend/
 COPY server/package.json ./server/
 COPY collector/package.json ./collector/
 
-# Install ALL dependencies in builder stage
-RUN cd frontend && NODE_ENV=development yarn install --network-timeout 300000 --silent && \
-    yarn add regenerator-runtime core-js --silent && cd ..
-RUN cd server && yarn install --production --network-timeout 300000 --silent && cd ..
-RUN cd collector && yarn install --production --network-timeout 300000 --silent && cd ..
+# PARALLEL dependency installation for speed
+RUN mkdir -p /tmp/yarn-cache && \
+    (cd frontend && NODE_ENV=development yarn install --cache-folder /tmp/yarn-cache --network-timeout 180000 --silent &) && \
+    (cd server && yarn install --production --cache-folder /tmp/yarn-cache --network-timeout 180000 --silent &) && \
+    (cd collector && yarn install --production --cache-folder /tmp/yarn-cache --network-timeout 180000 --silent &) && \
+    wait
+
+# Add missing frontend dependencies
+WORKDIR /app/frontend
+RUN yarn add regenerator-runtime core-js --silent
 
 # Copy source code
+WORKDIR /app
 COPY frontend/ ./frontend/
 COPY server/ ./server/
 COPY collector/ ./collector/
+COPY docker-entrypoint.sh ./
 
-# Fix icon and build frontend
+# Fix icon and build frontend (optimized)
 WORKDIR /app/frontend
-RUN sed -i 's/FolderNotch/Folder/g' src/components/Modals/ManageWorkspace/Documents/Directory/FolderRow/index.jsx
-RUN NODE_ENV=production NODE_OPTIONS="--max-old-space-size=2048" yarn build
+RUN sed -i 's/FolderNotch/Folder/g' src/components/Modals/ManageWorkspace/Documents/Directory/FolderRow/index.jsx && \
+    NODE_ENV=production NODE_OPTIONS="--max-old-space-size=1536" yarn build --silent
 
 # Generate Prisma client
 WORKDIR /app/server
 RUN npx prisma generate --schema=./prisma/schema.prisma
 
-# PRODUCTION STAGE - MINIMAL RUNTIME IMAGE
-FROM node:20-alpine AS production
-
-# Install ONLY runtime dependencies
-RUN apk add --no-cache \
-    python3 cairo jpeg pango musl giflib pixman \
-    pangomm libjpeg-turbo freetype ttf-dejavu \
-    fontconfig bash curl sqlite chromium \
-    && rm -rf /var/cache/apk/*
-
-# Create user
-RUN addgroup -g 1001 -S nodejs && adduser -S anythingllm -u 1001 -G nodejs
-
+# Setup application structure
 WORKDIR /app
-
-# Copy ONLY production files (NO node_modules from builder)
-COPY --from=builder --chown=anythingllm:nodejs /app/server/node_modules ./server/node_modules
-COPY --from=builder --chown=anythingllm:nodejs /app/collector/node_modules ./collector/node_modules
-COPY --from=builder --chown=anythingllm:nodejs /app/server/prisma ./server/prisma
-COPY --from=builder --chown=anythingllm:nodejs /app/server/*.js ./server/
-COPY --from=builder --chown=anythingllm:nodejs /app/server/package.json ./server/
-COPY --from=builder --chown=anythingllm:nodejs /app/collector/*.js ./collector/
-COPY --from=builder --chown=anythingllm:nodejs /app/collector/package.json ./collector/
-COPY --from=builder --chown=anythingllm:nodejs /app/frontend/dist ./server/public
-
-# Copy other necessary files
-COPY --from=builder --chown=anythingllm:nodejs /app/server/endpoints ./server/endpoints
-COPY --from=builder --chown=anythingllm:nodejs /app/server/models ./server/models
-COPY --from=builder --chown=anythingllm:nodejs /app/server/utils ./server/utils
-COPY --from=builder --chown=anythingllm:nodejs /app/server/jobs ./server/jobs
-COPY --from=builder --chown=anythingllm:nodejs /app/collector/processSingleFile ./collector/processSingleFile
-COPY --from=builder --chown=anythingllm:nodejs /app/collector/processLink ./collector/processLink
-COPY --from=builder --chown=anythingllm:nodejs /app/collector/processRawText ./collector/processRawText
-COPY --from=builder --chown=anythingllm:nodejs /app/collector/utils ./collector/utils
-COPY --from=builder --chown=anythingllm:nodejs /app/collector/extensions ./collector/extensions
-COPY --from=builder --chown=anythingllm:nodejs /app/collector/middleware ./collector/middleware
-
-# Copy package.json and entrypoint
-COPY --chown=anythingllm:nodejs package.json ./
-COPY --chown=anythingllm:nodejs docker-entrypoint.sh ./
-
-# Create directories
-RUN mkdir -p server/storage/documents server/storage/vector-cache server/storage/lancedb \
+RUN mkdir -p server/public && cp -r frontend/dist/* server/public/ && \
+    mkdir -p server/storage/documents server/storage/vector-cache server/storage/lancedb \
              collector/hotdir collector/storage/tmp server/logs && \
     chmod +x docker-entrypoint.sh && \
     chown -R anythingllm:nodejs /app && chmod -R 755 /app
+
+# AGGRESSIVE cleanup to reduce size under 4GB
+RUN rm -rf frontend/node_modules frontend/src frontend/public frontend/.git* frontend/dist && \
+    find server/node_modules -type f -name "*.md" -delete && \
+    find server/node_modules -type f -name "*.txt" -delete && \
+    find server/node_modules -type f -name "*.map" -delete && \
+    find server/node_modules -type d -name "test*" -exec rm -rf {} + 2>/dev/null || true && \
+    find server/node_modules -type d -name "__tests__" -exec rm -rf {} + 2>/dev/null || true && \
+    find server/node_modules -type d -name "docs" -exec rm -rf {} + 2>/dev/null || true && \
+    find collector/node_modules -type f -name "*.md" -delete && \
+    find collector/node_modules -type f -name "*.txt" -delete && \
+    find collector/node_modules -type f -name "*.map" -delete && \
+    find collector/node_modules -type d -name "test*" -exec rm -rf {} + 2>/dev/null || true && \
+    find collector/node_modules -type d -name "__tests__" -exec rm -rf {} + 2>/dev/null || true && \
+    find collector/node_modules -type d -name "docs" -exec rm -rf {} + 2>/dev/null || true && \
+    rm -rf /tmp/yarn-cache /root/.yarn-cache /root/.npm && \
+    apk del .build-deps && \
+    rm -rf /var/cache/apk/*
 
 # Environment variables
 ENV NODE_ENV=production
@@ -102,7 +97,6 @@ ENV LLM_PROVIDER=${LLM_PROVIDER:-"openai"}
 ENV EMBEDDING_ENGINE=${EMBEDDING_ENGINE:-"native"}
 ENV TTS_PROVIDER=${TTS_PROVIDER:-"native"}
 ENV WHISPER_PROVIDER=${WHISPER_PROVIDER:-"local"}
-ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
 EXPOSE ${PORT:-3001}
 
