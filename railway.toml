@@ -1,13 +1,12 @@
 [build]
 builder = "nixpacks"
-buildCommand = "yarn install && cd frontend && yarn install && yarn build && cd .. && cd server && yarn install && cd .. && cd collector && yarn install && cd .. && cp -r frontend/dist/* server/public/"
 
 [deploy]
 healthcheckPath = "/api/ping"
 healthcheckTimeout = 300
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3
-startCommand = "cd server && yarn prisma:generate && yarn prisma:migrate && yarn start"
+startCommand = "yarn render:build && cd server && yarn start"
 
 [env]
 NODE_ENV = "production"
