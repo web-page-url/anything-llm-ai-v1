@@ -4,7 +4,7 @@ builder = "nixpacks"
 [deploy]
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3
-startCommand = "yarn render:build && cd server && yarn start"
+startCommand = "npm run render:build && cd server && npm start"
 
 [env]
 NODE_ENV = "production"
