@@ -33,7 +33,7 @@ COPY collector/package.json ./collector/
 # PARALLEL dependency installation for speed
 RUN mkdir -p /tmp/yarn-cache && \
     (cd frontend && NODE_ENV=development yarn install --cache-folder /tmp/yarn-cache --network-timeout 180000 --silent &) && \
-    (cd server && yarn install --production --cache-folder /tmp/yarn-cache --network-timeout 180000 --silent &) && \
+    (cd server && yarn install --cache-folder /tmp/yarn-cache --network-timeout 180000 --silent &) && \
     (cd collector && yarn install --production --cache-folder /tmp/yarn-cache --network-timeout 180000 --silent &) && \
     wait
 
