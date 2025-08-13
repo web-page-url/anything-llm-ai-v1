@@ -1,10 +1,12 @@
 [build]
-builder = "nixpacks"
+builder = "dockerfile"
+dockerfilePath = "Dockerfile"
 
 [deploy]
+healthcheckPath = "/api/ping"
+healthcheckTimeout = 300
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3
-startCommand = "npm run railway:build && cd server && npm start"
 
 [env]
 NODE_ENV = "production"
