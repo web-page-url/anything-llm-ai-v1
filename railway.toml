@@ -2,8 +2,6 @@
 builder = "nixpacks"
 
 [deploy]
-healthcheckPath = "/api/ping"
-healthcheckTimeout = 300
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3
 startCommand = "yarn render:build && cd server && yarn start"
