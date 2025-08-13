@@ -53,9 +53,7 @@ WORKDIR /app/frontend
 RUN sed -i 's/FolderNotch/Folder/g' src/components/Modals/ManageWorkspace/Documents/Directory/FolderRow/index.jsx && \
     NODE_ENV=production NODE_OPTIONS="--max-old-space-size=1536" yarn build --silent
 
-# Generate Prisma client
-WORKDIR /app/server
-RUN npx prisma generate --schema=./prisma/schema.prisma
+# Skip Prisma generation - will be done at runtime in entrypoint script
 
 # Setup application structure
 WORKDIR /app
