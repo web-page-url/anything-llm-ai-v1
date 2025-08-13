@@ -25,8 +25,8 @@
     "prisma:reset": "truncate -s 0 server/storage/anythingllm.db && yarn prisma:migrate",
     "prod:server": "cd server && yarn start",
     "prod:frontend": "cd frontend && yarn build",
-    "render:build": "yarn install && cd server && yarn install && cd .. && cd frontend && yarn install && yarn build && cd .. && cd collector && yarn install && cd .. && node -e \"require('fs').cpSync('frontend/dist', 'server/public', {recursive: true})\"",
-    "railway:build": "echo 'Railway build handled by Dockerfile'",
+    "render:build": "npm install && cd server && npm install && cd .. && cd frontend && npm install && npm run build && cd .. && cd collector && npm install && cd .. && node -e \"require('fs').cpSync('frontend/dist', 'server/public', {recursive: true})\"",
+    "railway:build": "npm install && cd server && npm install && cd .. && cd frontend && npm install && npm run build && cd .. && cd collector && npm install && cd .. && node -e \"require('fs').cpSync('frontend/dist', 'server/public', {recursive: true})\"",
     "railway:start": "./docker-entrypoint.sh",
     "start": "yarn prisma:generate && yarn prisma:migrate && yarn prod:server",
     "render:start": "yarn prisma:generate && yarn prisma:migrate && npx concurrently \"yarn prod:server\" \"cd collector && yarn start\" --kill-others",
@@ -86,7 +86,6 @@
           ]
         }
       ],
-
       "publisherName": "Aditi Consulting",
       "verifyUpdateCodeSignature": false,
       "signAndEditExecutable": false

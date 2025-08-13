@@ -4,7 +4,7 @@ builder = "nixpacks"
 [deploy]
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3
-startCommand = "npm run render:build && cd server && npm start"
+startCommand = "npm run railway:build && cd server && npm start"
 
 [env]
 NODE_ENV = "production"
