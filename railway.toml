@@ -10,6 +10,7 @@ restartPolicyMaxRetries = 3
 
 [env]
 NODE_ENV = "production"
+STORAGE_DIR = "/app/server/storage"
 VECTOR_DB = "lancedb"
 LLM_PROVIDER = "openai"
 EMBEDDING_ENGINE = "native"
