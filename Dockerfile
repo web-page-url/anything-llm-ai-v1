@@ -31,6 +31,7 @@ COPY collector/package.json ./collector/
 # Install frontend dependencies (with dev deps for build)
 WORKDIR /app/frontend
 RUN NODE_ENV=development yarn install --network-timeout 300000 --silent
+RUN yarn add regenerator-runtime core-js --silent
 
 # Install server dependencies (production only)
 WORKDIR /app/server
