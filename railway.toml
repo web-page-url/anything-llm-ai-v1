@@ -1,12 +1,12 @@
 [build]
-builder = "dockerfile"
-dockerfilePath = "Dockerfile"
+builder = "nixpacks"
 
 [deploy]
 healthcheckPath = "/api/ping"
 healthcheckTimeout = 300
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3
+startCommand = "cd server && npm run start"
 
 [env]
 NODE_ENV = "production"
