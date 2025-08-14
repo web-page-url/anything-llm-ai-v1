@@ -1,12 +1,13 @@
 [build]
-builder = "dockerfile"
-dockerfilePath = "Dockerfile"
+builder = "nixpacks"
+buildCommand = "cd frontend && yarn install && yarn build && cd .. && cp -R frontend/dist server/public && cd server && yarn install && npx prisma generate --schema=./prisma/schema.prisma && cd .. && cd collector && yarn install"
 
 [deploy]
 healthcheckPath = "/api/ping"
 healthcheckTimeout = 300
 restartPolicyType = "on_failure"
 restartPolicyMaxRetries = 3
+startCommand = "cd server && npx prisma migrate deploy --schema=./prisma/schema.prisma && NODE_ENV=production node index.js"
 
 [env]
 NODE_ENV = "production"
